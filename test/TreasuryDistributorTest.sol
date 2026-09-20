@@ -14,13 +14,17 @@ contract TreasuryDistributorTest is Test {
     TreasuryDistributor public treasury;
     USDS public usds;
     
-    address public owner = address(0x1);
-    address public bridgeReserve = address(0x2);
-    address public insuranceFund = address(0x3);
-    address public rebaseFund = address(0x4);
-    address public mockUSDC = address(0x5);
+    address public owner;
+    address public bridgeReserve;
+    address public insuranceFund;
+    address public rebaseFund;
     
     function setUp() public {
+        owner = makeAddr("synergy.treasury.owner");
+        bridgeReserve = makeAddr("synergy.treasury.bridgeReserve");
+        insuranceFund = makeAddr("synergy.treasury.insuranceFund");
+        rebaseFund = makeAddr("synergy.treasury.rebaseFund");
+
         usds = new USDS();
         
         vm.prank(owner);
@@ -69,11 +73,13 @@ contract TreasuryDistributorTest is Test {
         assertEq(usds.balanceOf(owner), expectedOwner);
     }
     
-    function testFail_DistributeZero() public {
+    function test_RevertWhen_DistributeZero() public {
+        vm.expectRevert(TreasuryDistributor.ZeroAmount.selector);
         treasury.distribute(0);
     }
     
-    function testFail_DistributeMoreThanBalance() public {
+    function test_RevertWhen_DistributeMoreThanBalance() public {
+        vm.expectPartialRevert(TreasuryDistributor.InsufficientBalance.selector);
         treasury.distribute(2_000_000e18); // More than funded
     }
     
@@ -97,10 +103,10 @@ contract TreasuryDistributorTest is Test {
     // ============ ADMIN TESTS ============
     
     function test_UpdateRecipients() public {
-        address newOwner = address(0x10);
-        address newBridge = address(0x20);
-        address newInsurance = address(0x30);
-        address newRebase = address(0x40);
+        address newOwner = makeAddr("synergy.treasury.newOwner");
+        address newBridge = makeAddr("synergy.treasury.newBridge");
+        address newInsurance = makeAddr("synergy.treasury.newInsurance");
+        address newRebase = makeAddr("synergy.treasury.newRebase");
         
         vm.prank(owner);
         treasury.updateRecipients(newOwner, newBridge, newInsurance, newRebase);
@@ -114,14 +120,16 @@ contract TreasuryDistributorTest is Test {
         assertEq(usds.balanceOf(newRebase), 10_000e18);
     }
     
-    function testFail_UpdateRecipientsZeroAddress() public {
+    function test_RevertWhen_UpdateRecipientsZeroAddress() public {
         vm.prank(owner);
+        vm.expectRevert(TreasuryDistributor.InvalidAddress.selector);
         treasury.updateRecipients(address(0), bridgeReserve, insuranceFund, rebaseFund);
     }
     
-    function testFail_UpdateRecipientsNotOwner() public {
-        vm.prank(address(0x99));
-        treasury.updateRecipients(address(0x10), bridgeReserve, insuranceFund, rebaseFund);
+    function test_RevertWhen_UpdateRecipientsNotOwner() public {
+        vm.prank(makeAddr("synergy.treasury.nonOwner"));
+        vm.expectRevert("Ownable: caller is not the owner");
+        treasury.updateRecipients(makeAddr("synergy.treasury.otherOwner"), bridgeReserve, insuranceFund, rebaseFund);
     }
     
     // ============ STATS TESTS ============

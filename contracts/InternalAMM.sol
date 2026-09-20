@@ -19,6 +19,11 @@ import "./IManagedOracle.sol";
  */
 contract InternalAMM is ERC20, AccessControl, ReentrancyGuard {
     bytes32 public constant REBASE_ROLE = keccak256("REBASE_ROLE");
+
+    // Decimals audit (disclosed): USDS/ETHS are 18-decimal, the oracle price is
+    // 6-decimal. All VALUE accounting is normalized to 18-decimal dollar units
+    // via PRICE_6D_TO_18. Pure token math (swap, shares, reserves) is untouched.
+    uint256 public constant PRICE_6D_TO_18 = 1e12;
     
     // ============ STATE ============
     address public immutable tokenUSDS;
@@ -165,8 +170,8 @@ contract InternalAMM is ERC20, AccessControl, ReentrancyGuard {
         // Mint LP tokens
         _mint(msg.sender, shares);
         
-        // Record LP info for NAV tracking
-        uint256 depositValue = usdsAmount + (ethsAmount * ethPrice) / 1e18;
+        // Record LP info for NAV tracking (normalized 18-dec dollar units)
+        uint256 depositValue = usdsAmount + (ethsAmount * ethPrice * PRICE_6D_TO_18) / 1e18;
         lpInfo[msg.sender].initialDepositValue += depositValue;
         lpInfo[msg.sender].shares += shares;
         lpInfo[msg.sender].lastNAV = getNAVPerShare();
@@ -249,7 +254,7 @@ contract InternalAMM is ERC20, AccessControl, ReentrancyGuard {
      */
     function rebalancePool() external onlyRole(REBASE_ROLE) {
         uint256 ethPrice = oracle.getETHPrice();
-        uint256 totalValue = reserveUSDS + (reserveETHS * ethPrice) / 1e18;
+        uint256 totalValue = reserveUSDS + (reserveETHS * ethPrice * PRICE_6D_TO_18) / 1e18;
         
         // Target: 50/50 ratio
         uint256 targetUSDS = totalValue / 2;
@@ -273,15 +278,20 @@ contract InternalAMM is ERC20, AccessControl, ReentrancyGuard {
     
     /**
      * @notice Get NAV (Net Asset Value) per LP share
-     * @return NAV in USDC terms (6 decimals)
+     * @return NAV in normalized 18-decimal dollar units (18-dec fixed-point per share)
      */
     function getNAVPerShare() public view returns (uint256) {
         if (totalSupply() == 0) return 0;
-        
+
         uint256 ethPrice = oracle.getETHPrice();
-        uint256 totalValue = reserveUSDS + (reserveETHS * ethPrice) / 1e18;
-        
-        return totalValue / totalSupply();
+        uint256 totalValue = reserveUSDS + (reserveETHS * ethPrice * PRICE_6D_TO_18) / 1e18;
+
+        // Stage 2 precision fix (ТЗ 7.5): multiply BEFORE dividing, so per-share
+        // NAV is 18-decimal fixed-point instead of flooring to a small integer
+        // (previously a ~500k-value pool reported NAV 70/64 — pure truncation).
+        // Decimals audit: totalValue is now fully normalized (18-dec USDS +
+        // 18-dec-normalized ETH value). getLPNAV() is unchanged and benefits.
+        return (totalValue * 1e18) / totalSupply();
     }
     
     /**
@@ -305,7 +315,7 @@ contract InternalAMM is ERC20, AccessControl, ReentrancyGuard {
     function getPoolRatio() external view returns (uint256 usdsPercent, uint256 ethsPercent) {
         uint256 ethPrice = oracle.getETHPrice();
         uint256 usdsValue = reserveUSDS;
-        uint256 ethsValue = (reserveETHS * ethPrice) / 1e18;
+        uint256 ethsValue = (reserveETHS * ethPrice * PRICE_6D_TO_18) / 1e18;
         uint256 total = usdsValue + ethsValue;
         
         if (total == 0) return (5000, 5000); // 50/50
@@ -317,11 +327,18 @@ contract InternalAMM is ERC20, AccessControl, ReentrancyGuard {
     // ============ INTERNAL ============
     
     function _transferToken(address token, address from, address to, uint256 amount) internal {
-        // In production: use SafeERC20
-        // For simulation: direct transfer assumption
-        (bool success, ) = token.call(
-            abi.encodeWithSignature("transferFrom(address,address,uint256)", from, to, amount)
-        );
+        bool success;
+        if (from == address(this)) {
+            // Outgoing transfer: pool owns the tokens, plain transfer is required.
+            // transferFrom(address(this),...) would need an allowance the pool never gives itself.
+            (success, ) = token.call(
+                abi.encodeWithSignature("transfer(address,uint256)", to, amount)
+            );
+        } else {
+            (success, ) = token.call(
+                abi.encodeWithSignature("transferFrom(address,address,uint256)", from, to, amount)
+            );
+        }
         require(success, "Token transfer failed");
     }
     

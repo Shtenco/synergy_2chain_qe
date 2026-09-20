@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./BridgeCore.sol";
 import "./InternalAMM.sol";
@@ -44,6 +45,9 @@ contract ArbitrageExecutor is AccessControl {
     IERC20 public immutable canonicalETH; // WETH on Base
     IERC20 public immutable usds;
     IERC20 public immutable eths;
+    // Decimals audit (disclosed): ETH amounts are 18-decimal, oracle prices 6-decimal.
+    // All cost/profit math is expressed in canonical-token units via usdcScale.
+    uint256 public immutable usdcScale; // 10^(18 - canonicalUSDC.decimals())
     
     // Statistics
     uint256 public totalCyclesExecuted;
@@ -93,6 +97,7 @@ contract ArbitrageExecutor is AccessControl {
         canonicalETH = IERC20(_eth);
         usds = IERC20(_usds);
         eths = IERC20(_eths);
+        usdcScale = 10 ** (18 - IERC20Metadata(_usdc).decimals());
         
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(BOT_ROLE, msg.sender);
@@ -125,7 +130,8 @@ contract ArbitrageExecutor is AccessControl {
         uint256 cycleId = totalCyclesExecuted + 1;
         
         // Step 1: Buy ETH on external pool (simulated - in production via DEX router)
-        uint256 usdcCost = (ethVolume * extPrice) / 1e18;
+        // Cost expressed in canonical-token units (decimals audit).
+        uint256 usdcCost = (ethVolume * extPrice * 1e12) / (usdcScale * 1e18);
         
         // Step 2: Lock ETH → Mint ETHS
         bridge.lockETHAndMintETHS(address(this), ethVolume);
@@ -193,8 +199,8 @@ contract ArbitrageExecutor is AccessControl {
         // Step 2: Burn ETHS → Unlock ETH
         bridge.burnETHSAndUnlockETH(address(this), ethsVolume);
         
-        // Step 3: Sell ETH on external pool → get USDC
-        uint256 usdcReceived = (ethsVolume * extPrice) / 1e18;
+        // Step 3: Sell ETH on external pool → get USDC (canonical-token units)
+        uint256 usdcReceived = (ethsVolume * extPrice * 1e12) / (usdcScale * 1e18);
         
         // Step 4: Convert USDC → USDS for pool replenishment
         uint256 usdsToMint = usdcReceived / 2; // Half for pool, half for profit
@@ -235,10 +241,10 @@ contract ArbitrageExecutor is AccessControl {
         
         if (extPrice <= intPrice) return (false, 0);
         
-        // Estimate profit (simplified)
+        // Estimate profit in canonical-token units (decimals audit).
         uint256 spread = extPrice - intPrice;
-        estimatedProfit = (ethVolume * spread) / 1e18;
-        
+        estimatedProfit = (ethVolume * spread * 1e12) / (usdcScale * 1e18);
+
         return (estimatedProfit > 0, estimatedProfit);
     }
     
@@ -254,10 +260,10 @@ contract ArbitrageExecutor is AccessControl {
         
         if (intPrice <= extPrice) return (false, 0);
         
-        // Estimate profit (simplified)
+        // Estimate profit in canonical-token units (decimals audit).
         uint256 spread = intPrice - extPrice;
-        estimatedProfit = (ethsVolume * spread) / 1e18;
-        
+        estimatedProfit = (ethsVolume * spread * 1e12) / (usdcScale * 1e18);
+
         return (estimatedProfit > 0, estimatedProfit);
     }
     

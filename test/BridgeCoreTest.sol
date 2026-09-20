@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
+import "./mocks/ForkMocks.sol";
 import "../contracts/BridgeCore.sol";
 import "../contracts/USDS.sol";
 import "../contracts/ETHS.sol";
@@ -17,16 +18,24 @@ contract BridgeCoreTest is Test {
     ETHS public eths;
     ManagedOracle public oracle;
     
-    address public admin = address(0x1);
-    address public operator = address(0x2);
-    address public user = address(0x3);
-    address public mockUSDC = address(0x4);
+    address public admin;
+    address public operator;
+    address public user;
+    address public mockUSDC;
     
     uint256 public constant INITIAL_ETH_PRICE = 2500e6; // $2500 in USDC (6 decimals)
     uint256 public constant ONE_ETH = 1e18;
     uint256 public constant ONE_USDC = 1e6;
     
     function setUp() public {
+        admin = makeAddr("synergy.bridge.admin");
+        operator = makeAddr("synergy.bridge.operator");
+        user = makeAddr("synergy.bridge.user");
+        // Decimals audit: the bridge reads canonical.decimals() at construction,
+        // so the mock must be a real ERC20 (the old EOA placeholder also made
+        // every SafeERC20 transfer a silent no-op).
+        mockUSDC = address(new MockCanonicalToken());
+
         vm.startPrank(admin);
         
         // Deploy tokens
@@ -77,18 +86,19 @@ contract BridgeCoreTest is Test {
         assertTrue(address(bridge) != address(0));
     }
     
-    function testFail_LockETHWhenStopped() public {
+    function test_RevertWhen_LockETHWhenStopped() public {
         // Trigger emergency stop
         vm.prank(admin);
         bridge.triggerEmergencyStop();
         
-        // This should fail
         vm.prank(operator);
+        vm.expectRevert(BridgeCore.BridgeEmergencyStopped.selector);
         bridge.lockETHAndMintETHS{value: 1 ether}(user, ONE_ETH);
     }
     
-    function testFail_LockZeroAmount() public {
+    function test_RevertWhen_LockZeroAmount() public {
         vm.prank(operator);
+        vm.expectRevert(BridgeCore.ZeroAmount.selector);
         bridge.lockETHAndMintETHS{value: 0}(user, 0);
     }
     
@@ -118,14 +128,12 @@ contract BridgeCoreTest is Test {
         assertEq(balanceAfter - balanceBefore, ethAmount);
     }
     
-    function testFail_BurnMoreThanMinted() public {
+    function test_RevertWhen_BurnMoreThanMinted() public {
         uint256 ethAmount = 5 * ONE_ETH;
-        
-        vm.prank(operator);
-        bridge.lockETHAndMintETHS{value: 5 ether}(user, ethAmount);
-        
+
         // Try to burn more than minted
         vm.prank(operator);
+        vm.expectPartialRevert(BridgeCore.InsufficientBalance.selector);
         bridge.burnETHSAndUnlockETH(user, ethAmount + 1);
     }
     
@@ -180,21 +188,22 @@ contract BridgeCoreTest is Test {
     }
     
     function test_LiftEmergencyStop() public {
+        // Build healthy 1:1 backing FIRST (locking while stopped is impossible
+        // by design — the old version tried exactly that and reverted).
+        vm.prank(operator);
+        bridge.lockETHAndMintETHS{value: 10 ether}(user, 10 * ONE_ETH);
+
         // Trigger emergency
         vm.prank(admin);
         bridge.triggerEmergencyStop();
-        
+
         assertTrue(bridge.emergencyStopped());
-        
-        // Add more collateral to recover HF
-        vm.deal(admin, 100 ether);
-        vm.prank(admin);
-        bridge.lockETHAndMintETHS{value: 50 ether}(address(bridge), 50 * ONE_ETH);
-        
-        // Lift emergency
+
+        // HF is exactly 100% which satisfies MIN_HEALTH_FACTOR (100%),
+        // so the stop can be lifted.
         vm.prank(admin);
         bridge.liftEmergencyStop();
-        
+
         assertFalse(bridge.emergencyStopped());
     }
     

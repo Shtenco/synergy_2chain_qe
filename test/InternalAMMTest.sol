@@ -17,16 +17,21 @@ contract InternalAMMTest is Test {
     ETHS public eths;
     ManagedOracle public oracle;
     
-    address public admin = address(0x1);
-    address public lp1 = address(0x10);
-    address public lp2 = address(0x20);
-    address public trader = address(0x30);
+    address public admin;
+    address public lp1;
+    address public lp2;
+    address public trader;
     
     uint256 public constant INITIAL_ETH_PRICE = 2500e6;
     uint256 public constant ONE_ETH = 1e18;
     uint256 public constant ONE_USDS = 1e18; // USDS has 18 decimals
     
     function setUp() public {
+        admin = makeAddr("synergy.amm.admin");
+        lp1 = makeAddr("synergy.amm.lp1");
+        lp2 = makeAddr("synergy.amm.lp2");
+        trader = makeAddr("synergy.amm.trader");
+
         vm.startPrank(admin);
         
         // Deploy tokens
@@ -96,8 +101,9 @@ contract InternalAMMTest is Test {
         vm.stopPrank();
     }
     
-    function testFail_RemoveMoreThanOwned() public {
+    function test_RevertWhen_RemoveMoreThanOwned() public {
         vm.prank(lp1);
+        vm.expectRevert(InternalAMM.InsufficientShares.selector);
         amm.removeLiquidity(1000); // No shares
     }
     
@@ -216,19 +222,23 @@ contract InternalAMMTest is Test {
     
     function test_NAVCalculation() public {
         _setupPool();
-        
+
         uint256 nav = amm.getNAVPerShare();
-        
+
         // NAV should be positive
         assertGt(nav, 0);
-        
-        // Expected: (100k USDS + 40 ETHS * $2500) / shares
-        uint256 totalValue = 100_000e6 + (40 * 2500e6); // In USDC terms
+
+        // Decimals audit: the old expectation below mixed a 6-decimal price with
+        // 18-decimal reserves (the production bug) and then divided by 1e12 to
+        // hide the mismatch. Correct expectation in normalized 18-dec dollars:
+        // (100k USDS + 40 ETHS * $2500) / shares.
+        uint256 ethPrice = 2500e6; // 6 decimals, as the oracle reports
+        uint256 totalValue = 100_000 * ONE_USDS + (40 * ONE_ETH * ethPrice * 1e12) / 1e18;
         uint256 shares = amm.totalSupply();
-        uint256 expectedNAV = totalValue * 1e18 / shares; // Adjust for decimals
-        
+        uint256 expectedNAV = totalValue * 1e18 / shares; // 18-dec fixed-point
+
         // Should be approximately equal
-        assertApproxEqRel(nav, expectedNAV / 1e12, 0.01e18);
+        assertApproxEqRel(nav, expectedNAV, 0.01e18);
     }
     
     function test_LPNAVTracking() public {
