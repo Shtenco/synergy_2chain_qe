@@ -8,7 +8,6 @@ import "./IExternalVenueV2.sol";
 interface IUniswapV3PoolV2 {
     function token0() external view returns (address);
     function token1() external view returns (address);
-
     function swap(
         address recipient,
         bool zeroForOne,
@@ -27,9 +26,8 @@ interface IUniswapV3SwapCallbackV2 {
 }
 
 /// @notice Direct exact-input USDC/WETH adapter for one whitelisted V3 pool.
-/// @dev The caller transfers input to this adapter inside each trade.
-///      The adapter pays the pool only what the callback requires and returns
-///      the exact output to the caller. No oracle or reserve-ratio pricing.
+/// @dev No reserve-ratio pricing and no theoretical external leg.
+///      Any exact-input remainder caused by a caller price limit is refunded.
 contract UniswapV3VenueV2 is IExternalVenueV2, IUniswapV3SwapCallbackV2 {
     using SafeERC20 for IERC20;
 
@@ -61,48 +59,76 @@ contract UniswapV3VenueV2 is IExternalVenueV2, IUniswapV3SwapCallbackV2 {
         usdcIsToken0 = t0 == _usdc;
     }
 
-    function buyWETHExactUSDC(uint256 usdcIn, uint256 minWethOut)
-        external override returns (uint256 wethOut)
-    {
+    function buyWETHExactUSDC(
+        uint256 usdcIn,
+        uint256 minWethOut,
+        uint160 sqrtPriceLimitX96
+    ) external override returns (uint256 wethOut) {
         require(usdcIn != 0, "input=0");
+
+        uint256 usdcBefore = usdc.balanceOf(address(this));
         usdc.safeTransferFrom(msg.sender, address(this), usdcIn);
 
         bool zeroForOne = usdcIsToken0;
+        uint160 limit = sqrtPriceLimitX96 == 0
+            ? (zeroForOne ? MIN_SQRT_RATIO_PLUS_ONE : MAX_SQRT_RATIO_MINUS_ONE)
+            : sqrtPriceLimitX96;
+
         (int256 a0, int256 a1) = pool.swap(
             address(this),
             zeroForOne,
             int256(usdcIn),
-            zeroForOne ? MIN_SQRT_RATIO_PLUS_ONE : MAX_SQRT_RATIO_MINUS_ONE,
-            abi.encode(msg.sender)
+            limit,
+            bytes("")
         );
 
         int256 outDelta = zeroForOne ? a1 : a0;
         if (outDelta >= 0) revert BadDelta();
+
         wethOut = uint256(-outDelta);
         if (wethOut < minWethOut) revert Slippage();
         weth.safeTransfer(msg.sender, wethOut);
+
+        uint256 usdcAfter = usdc.balanceOf(address(this));
+        if (usdcAfter > usdcBefore) {
+            usdc.safeTransfer(msg.sender, usdcAfter - usdcBefore);
+        }
     }
 
-    function sellWETHExactInput(uint256 wethIn, uint256 minUsdcOut)
-        external override returns (uint256 usdcOut)
-    {
+    function sellWETHExactInput(
+        uint256 wethIn,
+        uint256 minUsdcOut,
+        uint160 sqrtPriceLimitX96
+    ) external override returns (uint256 usdcOut) {
         require(wethIn != 0, "input=0");
+
+        uint256 wethBefore = weth.balanceOf(address(this));
         weth.safeTransferFrom(msg.sender, address(this), wethIn);
 
         bool zeroForOne = !usdcIsToken0;
+        uint160 limit = sqrtPriceLimitX96 == 0
+            ? (zeroForOne ? MIN_SQRT_RATIO_PLUS_ONE : MAX_SQRT_RATIO_MINUS_ONE)
+            : sqrtPriceLimitX96;
+
         (int256 a0, int256 a1) = pool.swap(
             address(this),
             zeroForOne,
             int256(wethIn),
-            zeroForOne ? MIN_SQRT_RATIO_PLUS_ONE : MAX_SQRT_RATIO_MINUS_ONE,
-            abi.encode(msg.sender)
+            limit,
+            bytes("")
         );
 
         int256 outDelta = zeroForOne ? a1 : a0;
         if (outDelta >= 0) revert BadDelta();
+
         usdcOut = uint256(-outDelta);
         if (usdcOut < minUsdcOut) revert Slippage();
         usdc.safeTransfer(msg.sender, usdcOut);
+
+        uint256 wethAfter = weth.balanceOf(address(this));
+        if (wethAfter > wethBefore) {
+            weth.safeTransfer(msg.sender, wethAfter - wethBefore);
+        }
     }
 
     function uniswapV3SwapCallback(
