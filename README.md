@@ -289,3 +289,5 @@ MIT License
 - GitHub Issues
 - Telegram: @perpetual_arb_engine
 - Discord: Perpetual Arbitrage Engine
+
+Repository: `synergy_2chain_qe`
