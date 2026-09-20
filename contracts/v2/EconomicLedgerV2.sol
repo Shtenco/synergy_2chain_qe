@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "./IExternalPriceOracleV2.sol";
 
-/// @notice Consolidated balance sheet that refuses to count synthetic tokens,
-///         protocol LP tokens, internal oracle marks, or internal TVL as hard assets.
-/// @dev Liabilities are deliberately conservative: ALL USDS/ETHS totalSupply is counted.
-contract EconomicLedgerV2 is Ownable {
+/// @notice Immutable consolidated balance sheet for protocol-owned canonical assets.
+/// @dev Synthetic tokens, protocol LP tokens, internal oracle marks and internal TVL
+///      are never counted as hard assets. The tracked account set cannot be changed.
+contract EconomicLedgerV2 {
     uint256 public constant BPS = 10_000;
     uint256 public constant PRICE_6D_TO_18 = 1e12;
 
@@ -24,8 +23,6 @@ contract EconomicLedgerV2 is Ownable {
 
     address[] private _tracked;
     mapping(address => bool) public isTracked;
-
-    event AccountTrackingUpdated(address indexed account, bool tracked);
 
     constructor(
         address _canonicalUSDC,
@@ -57,31 +54,23 @@ contract EconomicLedgerV2 is Ownable {
         require(d <= 18, "USDC decimals");
         usdcScale = 10 ** (18 - d);
 
-        _track(_bridge);
+        _trackConstructorOnly(_bridge);
         for (uint256 i = 0; i < initialTracked.length; i++) {
-            _track(initialTracked[i]);
+            _trackConstructorOnly(initialTracked[i]);
         }
     }
-
-    receive() external payable {}
 
     function trackedAccounts() external view returns (address[] memory) {
         return _tracked;
     }
 
-    function addTrackedAccount(address account) external onlyOwner {
-        _track(account);
-    }
-
-    function _track(address account) internal {
+    function _trackConstructorOnly(address account) private {
         require(account != address(0), "account=0");
         if (isTracked[account]) return;
         isTracked[account] = true;
         _tracked.push(account);
-        emit AccountTrackingUpdated(account, true);
     }
 
-    /// @notice Real external assets only, normalized to 18-decimal USD.
     function hardAssets18() public view returns (uint256 value) {
         uint256 p6 = externalOracle.getPrice6d();
 
@@ -93,7 +82,6 @@ contract EconomicLedgerV2 is Ownable {
         }
     }
 
-    /// @notice Redeemable synthetic claims, normalized to 18-decimal USD.
     function liabilities18() public view returns (uint256 value) {
         uint256 p6 = externalOracle.getPrice6d();
         value = usds.totalSupply();
