@@ -15,9 +15,7 @@ interface IWETH9V2 is IERC20 {
 }
 
 /// @notice Atomic two-way arbitrage executor.
-/// @dev Route names describe the REAL direction. Profit is accepted only when
-///      the caller's canonical USDC output exceeds canonical input by minProfit.
-///      Oracle spread never decides P&L.
+/// @dev Route names describe the actual direction. Oracle spread is never booked as profit.
 contract ArbitrageExecutorV2 is AccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -45,6 +43,7 @@ contract ArbitrageExecutorV2 is AccessControl, ReentrancyGuard {
 
     error NotProfitable(uint256 output, uint256 required);
     error ResidualSyntheticBalance();
+    error DeadlineExpired(uint256 deadline, uint256 nowTs);
 
     constructor(
         address _bridge,
@@ -73,19 +72,33 @@ contract ArbitrageExecutorV2 is AccessControl, ReentrancyGuard {
         _grantRole(BOT_ROLE, msg.sender);
     }
 
+    modifier beforeDeadline(uint256 deadline) {
+        if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
+        _;
+    }
+
     function executeExternalBuyInternalSell(
         uint256 usdcIn,
         uint256 minWethOut,
         uint256 minInternalUSDSOut18,
-        uint256 minProfitUSDC
-    ) external onlyRole(BOT_ROLE) nonReentrant returns (uint256 profit) {
+        uint160 sqrtPriceLimitX96,
+        uint256 minProfitUSDC,
+        uint256 deadline
+    )
+        external
+        onlyRole(BOT_ROLE)
+        nonReentrant
+        beforeDeadline(deadline)
+        returns (uint256 profit)
+    {
         require(usdcIn != 0, "input=0");
 
         uint256 start = usdc.balanceOf(address(this));
         usdc.safeTransferFrom(msg.sender, address(this), usdcIn);
 
         _approveExact(usdc, address(venue), usdcIn);
-        uint256 wethOut = venue.buyWETHExactUSDC(usdcIn, minWethOut);
+        uint256 wethOut =
+            venue.buyWETHExactUSDC(usdcIn, minWethOut, sqrtPriceLimitX96);
 
         weth.withdraw(wethOut);
         bridge.lockETHAndMintETHS{value: wethOut}(address(this), wethOut);
@@ -116,8 +129,16 @@ contract ArbitrageExecutorV2 is AccessControl, ReentrancyGuard {
         uint256 usdcIn,
         uint256 minInternalETHSOut,
         uint256 minExternalUSDCOut,
-        uint256 minProfitUSDC
-    ) external onlyRole(BOT_ROLE) nonReentrant returns (uint256 profit) {
+        uint160 sqrtPriceLimitX96,
+        uint256 minProfitUSDC,
+        uint256 deadline
+    )
+        external
+        onlyRole(BOT_ROLE)
+        nonReentrant
+        beforeDeadline(deadline)
+        returns (uint256 profit)
+    {
         require(usdcIn != 0, "input=0");
 
         uint256 start = usdc.balanceOf(address(this));
@@ -136,7 +157,11 @@ contract ArbitrageExecutorV2 is AccessControl, ReentrancyGuard {
 
         weth.deposit{value: nativeReceived}();
         _approveExact(IERC20(address(weth)), address(venue), nativeReceived);
-        uint256 usdcOut = venue.sellWETHExactInput(nativeReceived, minExternalUSDCOut);
+        uint256 usdcOut = venue.sellWETHExactInput(
+            nativeReceived,
+            minExternalUSDCOut,
+            sqrtPriceLimitX96
+        );
 
         uint256 finish = usdc.balanceOf(address(this));
         uint256 canonicalOutput = finish - start;
@@ -159,9 +184,7 @@ contract ArbitrageExecutorV2 is AccessControl, ReentrancyGuard {
 
     function _approveExact(IERC20 token, address spender, uint256 amount) internal {
         uint256 current = token.allowance(address(this), spender);
-        if (current != 0) {
-            token.safeApprove(spender, 0);
-        }
+        if (current != 0) token.safeApprove(spender, 0);
         token.safeApprove(spender, amount);
     }
 
