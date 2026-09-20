@@ -1,0 +1,27 @@
+name: HARDNAV V2
+
+on:
+  pull_request:
+    paths:
+      - 'contracts/v2/**'
+      - 'test/V2EconomicCore.t.sol'
+      - 'script/DeployV2.s.sol'
+      - 'foundry.toml'
+  push:
+    branches:
+      - hardnav-v2-economic-core
+
+jobs:
+  forge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Forge build
+        run: forge build
+      - name: HARDNAV V2 invariant tests
+        run: forge test --match-path test/V2EconomicCore.t.sol -vvv
