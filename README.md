@@ -336,6 +336,19 @@ bounds artifact: output ≈ $198.7 < $200.1 required). Lesson: bigger size =
 more per-round extraction but fewer rounds; total capture scales with
 edge-squared over pool depth.
 
+### $20 capital, all-in $20/trade, dip block 51336585 (~$2471)
+
+Small trader on deep infrastructure (fair 50k/20 pool, external spread):
+
+```text
+rounds    = 6, then the gate stops the campaign
+bot       = $20.00 -> $20.351965 (+1.76%)
+ΔLP       = +$0.653773
+ΔS_net    = +$0.964059   (after full 6-round gas $0.0417)
+ΔD        = -$1.005740   <- external donor paid ~5% of bot capital
+Σ         ≈ 0
+```
+
 ---
 
 # MATHEMATICAL PROOF OF THE PROFIT MECHANISM

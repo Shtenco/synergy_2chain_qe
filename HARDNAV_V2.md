@@ -94,3 +94,10 @@ Same fair formula at 10x size:
 Δbot = +$0.265839, ΔLP = +$1.410382, ΔS_net = +$1.660665,
 ΔD = -$1.676222, Σ ≈ 0. One round, then the profit gate stops round 2.
 ```
+
+## $20 capital campaign (dip block 51336585)
+
+```text
+rounds = 6, bot $20.00 -> $20.351965 (+1.76%),
+ΔLP = +$0.653773, ΔS_net = +$0.964059, ΔD = -$1.005740, Σ ≈ 0.
+```

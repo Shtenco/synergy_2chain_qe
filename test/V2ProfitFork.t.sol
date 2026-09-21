@@ -429,6 +429,52 @@ contract V2ProfitFork is Test {
         assertGt(systemNet, 0, "system not profitable");
     }
 
+    function _tryTwenty() internal returns (bool ok) {
+        vm.prank(bot);
+        try executor.executeExternalBuyInternalSell(20e6, 0.0080 ether, 19.9e18, 0, 5_000, block.timestamp)
+            returns (uint256)
+        {
+            ok = true;
+        } catch {
+            ok = false;
+        }
+    }
+
+    /// @dev $20 starting arb capital, all-in $20/trade, DEEP fair pool,
+    ///      external-only spread at a dip block (e.g. 51336585).
+    ///      Small trader on big infrastructure — the winning formula.
+    function test_V2TwentyCapital_DipHarvest() public {
+        deal(USDC, bot, 20e6); // overwrite setUp stake: exactly $20 capital
+        uint256 b0 = IERC20(USDC).balanceOf(bot);
+        (uint256 uni0, uint256 u0, uint256 e0) = _extMark();
+        uint256 gasStart = gasleft();
+        uint256 rounds;
+        while (rounds < 25) {
+            if (!_tryTwenty()) break;
+            rounds++;
+        }
+        uint256 b1 = IERC20(USDC).balanceOf(bot);
+        (int256 intDelta, int256 poolDelta) = _lpPoolDeltas(u0, e0, uni0);
+        int256 botDelta = int256(b1) - int256(b0);
+        uint256 fullFee6 = new OPGasCostModelV2(address(oracle)).estimateFeeUSDC6(
+            gasStart - gasleft(), tx.gasprice, 400 * rounds
+        );
+        int256 systemNet = botDelta * 1e12 + intDelta - int256(fullFee6) * 1e12;
+
+        console.logUint(rounds);
+        console.logInt(botDelta);
+        console.logInt(intDelta);
+        console.logInt(poolDelta);
+        console.logUint(fullFee6);
+        console.logInt(systemNet);
+        console.logUint(b1);
+
+        assertGe(rounds, 1, "no round executed on $20 capital");
+        assertLt(poolDelta, 0, "external donor did not pay");
+        assertApproxEqAbs(botDelta * 1e12 + intDelta + poolDelta, 0, 1e16, "conservation broken");
+        assertGt(systemNet, 0, "system not profitable on $20 capital");
+    }
+
     function test_V2Executor_WrongDirectionReverts() public {
         vm.prank(bot);
         vm.expectRevert();
