@@ -483,6 +483,23 @@ Optimal size for a deep pool: `s* = U × (e − 0.006) / 2`.
 
 Full derivation, TVL tables and verification log: `FORMULAS.md`.
 
+### EQUAL POOLS: internal TVL = external TVL = ~$117M, $20 capital
+
+Deepest proof (`test/V2EqualPools.t.sol`, dip block 51336585):
+
+```text
+rounds    = 25/25 (no decay stop — parity depths don't move)
+bot       = $20.00 -> $22.673545 (+13.4% on capital)
+ΔLP       = +$1.516897   (infrastructure earns while bot harvests)
+ΔS_net    = +$4.057493   (after full 25-round gas $0.133)
+ΔD        = -$4.190454   <- external donor
+Σ         ≈ 0
+```
+
+Per-round: bot +$0.107 (equation predicted +$0.101), LP +$0.061,
+donor −$0.168 — every round nearly identical. Equal depths remove
+self-decay: the campaign hits the cap, not the gate.
+
 Reproduce:
 
 ```powershell
