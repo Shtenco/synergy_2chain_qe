@@ -554,6 +554,16 @@ Optimal size for a deep pool: `s* = U × (e − 0.006) / 2`.
 
 Full derivation, TVL tables and verification log: `FORMULAS.md`.
 
+### Unified minimums (mint pool $118M, external ~$121.5M, capital $20)
+
+- BRIDGE-LOCK + minted pool: minimum = **∞** (thin $1k AND full $118M
+  backing both revert `Insolvent`: X/(M+X)<1 ∀ finite X). Совместим
+  только с lock-minted пулами (backing = TVL).
+- POOL-BRIDGE: минимум **~$50k** (internal $8.3k + пулы ~$21k ×2,
+  измерено: 12k/5 исполняется +$0.156, 10k/2 отказывает с целым капиталом).
+- Вывод: пул-бриджу нужно в ~2000 раз меньше backing-капитала (нет
+  глобального solvency), цена — LP несут divergence-риск вместо сейфа.
+
 ### EQUAL POOLS: internal TVL = external TVL = ~$117M, $20 capital
 
 Deepest proof (`test/V2EqualPools.t.sol`, dip block 51336585):
