@@ -253,6 +253,138 @@ contract V2ProfitFork is Test {
         assertGt(systemNet, 0, "system (bot+LP) not profitable");
     }
 
+    /// @dev Low pool appointed V1-style: 8000 USDS / 3.5 ETHS ~= 2286,
+    ///      far BELOW external ~2487. Funds seeder extra (test funding, disclosed).
+    function _deployLowStack() internal returns (InternalAMMV2 ammL, ArbitrageExecutorV2 execL) {
+        // NOTE: deal() OVERWRITES balances. Seeder leftovers here are 2k USDC +
+        // 2.1 ETH, so overwrite with the full amounts needed below.
+        deal(USDC, seeder, 8_000e6);
+        deal(seeder, 4 ether);
+        ammL = new InternalAMMV2(address(usds), address(eths), address(oracle));
+        vm.startPrank(seeder);
+        IERC20(USDC).approve(address(bridge), type(uint256).max);
+        bridge.lockUSDCAndMintUSDS(seeder, 8_000e6);
+        bridge.lockETHAndMintETHS{value: 3.5 ether}(seeder, 3.5 ether);
+        usds.approve(address(ammL), type(uint256).max);
+        eths.approve(address(ammL), type(uint256).max);
+        ammL.addLiquidity(8_000e18, 3.5 ether);
+        vm.stopPrank();
+
+        execL = new ArbitrageExecutorV2(
+            address(bridge), address(ammL), address(venue),
+            USDC, WETH, address(usds), address(eths)
+        );
+        bridge.grantRole(bridge.OPERATOR_ROLE(), address(execL));
+        execL.grantRole(execL.BOT_ROLE(), bot);
+        vm.prank(bot);
+        IERC20(USDC).approve(address(execL), type(uint256).max);
+    }
+
+    function _tryHi(ArbitrageExecutorV2 e) internal returns (bool ok) {
+        vm.prank(bot);
+        try e.executeExternalBuyInternalSell(50e6, 0.0195 ether, 52e18, 0, 1_000_000, block.timestamp)
+            returns (uint256)
+        {
+            ok = true;
+        } catch {
+            ok = false;
+        }
+    }
+
+    function _tryLo(ArbitrageExecutorV2 e) internal returns (bool ok) {
+        vm.prank(bot);
+        try e.executeInternalBuyExternalSell(20e6, 0.008 ether, 20.5e6, 0, 1_000_000, block.timestamp)
+            returns (uint256)
+        {
+            ok = true;
+        } catch {
+            ok = false;
+        }
+    }
+
+    function _lpMark(InternalAMMV2 h, InternalAMMV2 l) internal view returns (uint256 m) {
+        (uint256 u0, uint256 e0) = amm.reserves();
+        (uint256 uh, uint256 eh) = h.reserves();
+        (uint256 ul, uint256 el) = l.reserves();
+        m = u0 + e0 * 2500 + uh + eh * 2500 + ul + el * 2500;
+    }
+
+    struct V2Snap {
+        uint256 bot;
+        int256 sysExBot;
+        uint256 uni;
+    }
+
+    function _sysFull(InternalAMMV2 h, InternalAMMV2 l) internal view returns (V2Snap memory s) {
+        s.bot = IERC20(USDC).balanceOf(bot);
+        s.sysExBot =
+            int256(_lpMark(h, l)) + int256(bridge.hardAssets18()) - int256(bridge.liabilities18());
+        s.uni = IERC20(USDC).balanceOf(UNI_POOL) * 1e12 + IERC20(WETH).balanceOf(UNI_POOL) * 2500;
+    }
+
+    function _assertSymmetric(
+        V2Snap memory a,
+        V2Snap memory b,
+        ArbitrageExecutorV2 eh,
+        ArbitrageExecutorV2 el,
+        uint256 gasUsed,
+        uint256 rA,
+        uint256 rB
+    ) internal returns (int256 systemNet) {
+        int256 botD = int256(b.bot) - int256(a.bot);
+        int256 sysD = b.sysExBot - a.sysExBot;
+        int256 poolD = int256(b.uni) - int256(a.uni);
+        uint256 fullFee6 = new OPGasCostModelV2(address(oracle)).estimateFeeUSDC6(
+            gasUsed, tx.gasprice, 400 * (rA + rB)
+        );
+        systemNet = botD * 1e12 + sysD - int256(fullFee6) * 1e12;
+
+        console.logUint(rA);
+        console.logUint(rB);
+        console.logInt(botD);
+        console.logInt(sysD);
+        console.logInt(poolD);
+        console.logUint(fullFee6);
+        console.logInt(systemNet);
+        console.logUint(bridge.solvencyBps());
+
+        assertGe(rA, 1, "high phase never executed");
+        assertGe(rB, 1, "low phase never executed");
+        assertApproxEqAbs(botD * 1e12 + sysD + poolD, 0, 1e16, "conservation broken");
+        assertGe(bridge.solvencyBps(), 10_000, "bridge impaired");
+        assertEq(usds.balanceOf(address(eh)), 0, "USDS dust hi");
+        assertEq(usds.balanceOf(address(el)), 0, "USDS dust lo");
+        assertEq(eths.balanceOf(address(eh)), 0, "ETHS dust hi");
+        assertEq(eths.balanceOf(address(el)), 0, "ETHS dust lo");
+        assertGt(systemNet, 0, "symmetric system did not grow");
+    }
+
+    /// @dev SYMMETRY + HUGE appointed spread. Phase A harvests high-internal
+    ///      vs external; Phase B harvests low-internal vs external. Measures
+    ///      the WHOLE system: bot + all internal LPs + bridge LNAV.
+    function test_V2Symmetric_HugeSpread_SystemGrowth() public {
+        (InternalAMMV2 h, ArbitrageExecutorV2 eh) = _deployOffMarketStack();
+        (InternalAMMV2 l, ArbitrageExecutorV2 el) = _deployLowStack();
+        V2Snap memory s0 = _sysFull(h, l);
+
+        uint256 gasStart = gasleft();
+        uint256 rA;
+        while (rA < 10) {
+            if (!_tryHi(eh)) break;
+            rA++;
+        }
+        uint256 rB;
+        while (rB < 10) {
+            if (!_tryLo(el)) break;
+            rB++;
+        }
+        uint256 gasUsed = gasStart - gasleft();
+
+        V2Snap memory s1 = _sysFull(h, l);
+        int256 systemNet = _assertSymmetric(s0, s1, eh, el, gasUsed, rA, rB);
+        assertGt(systemNet, 0, "symmetric system did not grow");
+    }
+
     function test_V2Executor_WrongDirectionReverts() public {
         vm.prank(bot);
         vm.expectRevert();
