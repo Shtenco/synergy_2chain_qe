@@ -574,6 +574,13 @@ Full derivation, TVL tables and verification log: `FORMULAS.md`.
 Пороги: R≥2x от ~$3.2; net-positive от ~$1.6. Правило оператора:
 minProfit ≥ 2x типового газа (~$0.014) — gate сам режет мелкие размеры.
 
+### Чертеж B: $500 total работает (спайк 4.1%, INT)
+
+AMM $180 + backing $300 + бот $20, все через локи 1:1: **system net
++$0.064578 за 1 раунд**, бот $20 → $20.028, донор −$0.077, Σ = 0,
+solvency 10000 (`test/V2Micro500.t.sol`). Прогноз был +$0.014 —
+модель оказалась консервативной.
+
 ### Unified minimums (mint pool $118M, external ~$121.5M, capital $20)
 
 - BRIDGE-LOCK + minted pool: minimum = **∞** (thin $1k AND full $118M

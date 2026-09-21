@@ -86,6 +86,22 @@ net-positive needs s ≥ ~$1.6. Operational rule: set executor
 minProfit ≥ 2x typical full gas (~$0.014) — the gate then auto-refuses
 sub-discipline sizes. All four micros summed: bot +$0.034 total.
 
+## 10. Blueprint B: $500 total system (spike 4.1%, INT direction)
+
+AMM $90/side ($180) + backing buffer $300 + bot $20 = $500.
+All inventory via 1:1 locks (solvency 100% by construction).
+`test/V2Micro500.t.sol` @ spike block 51314085:
+
+```text
+rounds = 1 (round 2 refused: micro-depth decay, gate working)
+botD = +$0.028259, oursD = +$0.049221, uniD = -$0.077480, Σ = 0
+fee = $0.012902, systemNet = +$0.064578, solvency 10000, dust 0
+bot: $20.00 -> $20.028259
+```
+
+$500 works iff: fully-backed micro-inventory + spike edge ≥4% +
+$2 size. Predicted +$0.014, measured +$0.065 (conservative impact model).
+
 ## 7. Unified minimums: POOL-BRIDGE vs BRIDGE-LOCK ($118M mint pool)
 
 Setup: internal MINT pool $118M (59M/23.6k), external real pool ~$121.5M
