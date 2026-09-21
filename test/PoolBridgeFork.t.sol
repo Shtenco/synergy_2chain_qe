@@ -10,6 +10,7 @@ import "../contracts/v2/OPGasCostModelV2.sol";
 import "../contracts/v2/IExternalPriceOracleV2.sol";
 import "../contracts/pb/BridgePool.sol";
 import "../contracts/pb/ExecutorPB.sol";
+import "../contracts/pb/BuybackBurner.sol";
 
 contract FixedOraclePB is IExternalPriceOracleV2 {
     function getPrice6d() external pure override returns (uint256) { return 2500e6; }
@@ -139,6 +140,75 @@ contract PoolBridgeFork is Test {
         assertLt(uniD, 0, "external donor did not pay");
         // EXACT proof: bot + ALL bridge pools, gross (before gas) and net.
         assertGt(botD * 1e12 + poolsD, 0, "bot+pools gross not positive");
+    }
+
+    function _runHarvest() internal returns (uint256 rounds, uint256 profit6) {
+        while (rounds < 25) {
+            if (!_try20()) break;
+            rounds++;
+        }
+        profit6 = IERC20(USDC).balanceOf(bot) - 20e6;
+    }
+
+    function _poolAPrice() internal view returns (uint256 p18) {
+        (uint256 rA, uint256 rB) = poolA.reserves();
+        p18 = (rB * 1e12 * 1e18) / rA; // 18d USDC per USDS
+    }
+
+    /// @dev 50% of harvest profit -> buy USDS from PoolA -> burn. Returns (burned, priceBefore, priceAfter).
+    function _doBuyback(uint256 buyback6) internal returns (uint256 burned, uint256 priceB, uint256 priceA) {
+        priceB = _poolAPrice();
+        BuybackBurner burner = new BuybackBurner(address(poolA), address(usds), USDC);
+        usds.grantRole(usds.BRIDGE_ROLE(), address(burner));
+        uint256 minOut = poolA.getAmountOut(buyback6, false) * 99 / 100;
+        vm.prank(bot);
+        IERC20(USDC).approve(address(burner), buyback6);
+        vm.prank(bot);
+        burned = burner.buyAndBurn(buyback6, minOut);
+        priceA = _poolAPrice();
+    }
+
+    function _assertBuyback(
+        PBSnap memory a,
+        PBSnap memory b,
+        uint256 supply0,
+        uint256 burned,
+        uint256 priceB,
+        uint256 priceA
+    ) internal view {
+        int256 botD = int256(b.bot) - int256(a.bot);
+        int256 poolsD = int256(b.poolsM) - int256(a.poolsM);
+        int256 uniD = int256(b.uniM) - int256(a.uniM);
+        uint256 supply1 = usds.totalSupply();
+
+        console.logInt(botD);
+        console.logInt(poolsD);
+        console.logInt(uniD);
+        console.logUint(supply0 - supply1);
+        console.logUint(priceB);
+        console.logUint(priceA);
+        console.logUint(IERC20(USDC).balanceOf(bot));
+
+        assertEq(supply0 - supply1, burned, "supply did not shrink by burned");
+        assertGt(priceA, priceB, "peg not supported");
+        assertGe(IERC20(USDC).balanceOf(bot), 20e6, "bot below start");
+        // Full conservation INCLUDING the flames: every cent tracked.
+        assertApproxEqAbs(botD * 1e12 + poolsD + uniD + int256(burned), 0, 1e16, "conservation broken");
+    }
+
+    /// @notice Variant 1: earnings -> buyback -> burn. No mint anywhere.
+    function test_BuybackBurn_FromEarnings() public {
+        PBSnap memory s0 = _snap();
+        uint256 supply0 = usds.totalSupply();
+        (uint256 rounds, uint256 profit6) = _runHarvest();
+        require(rounds >= 1, "no harvest to fund buyback");
+        require(profit6 > 0, "no profit to route");
+
+        uint256 buyback = profit6 / 2;
+        (uint256 burned, uint256 priceB, uint256 priceA) = _doBuyback(buyback);
+        PBSnap memory s1 = _snap();
+
+        _assertBuyback(s0, s1, supply0, burned, priceB, priceA);
     }
 
     function test_PoolBridge_HarvestNoVault() public {
