@@ -445,6 +445,34 @@ tools\foundry\forge.exe test --fork-url "https://mainnet.base.org" `
   --fork-block-number 51341585 --no-isolate --match-contract V2ProfitFork -vv
 ```
 
+---
+
+## POOL SIZING EQUATION ($20 capital, $118M external donor)
+
+Per-round profit for size `s`, edge `e`, gas `g`, USDS-side depth `U`:
+
+```text
+profit = s × (e − 0.006 − s/U) − g
+U  >  s / (e − 0.006 − g/s),   TVL = 2U
+```
+
+Solved for s = $20, dip edge e = 1.14%, g = $0.007:
+
+```text
+U > 20 / 0.00507 ≈ $3,945/side  →  TVL > ~$7,900
+```
+
+Verified on-fork (`test/V2PoolSizing.t.sol`, dip block 51336585):
+
+```text
+U=$8k (TVL $16k): 1 round, bot +$0.0567 (predicted +$0.051), system net +$0.156
+U=$4k (TVL $8k):  1 round, bot +$0.0066 (predicted +$0.001, boundary dust)
+```
+
+Absolute floor: edge must exceed `0.6% + g/s` (0.635% at $20 size) —
+below that no pool depth helps. Recommended: TVL ≥ 2x boundary (≈$16k).
+Optimal size for a deep pool: `s* = U × (e − 0.006) / 2`.
+
 Reproduce:
 
 ```powershell
