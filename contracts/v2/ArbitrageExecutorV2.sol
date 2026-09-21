@@ -108,21 +108,8 @@ contract ArbitrageExecutorV2 is AccessControl, ReentrancyGuard {
 
         bridge.burnUSDSAndUnlockUSDC(address(this), usdsOut);
 
-        uint256 finish = usdc.balanceOf(address(this));
-        uint256 canonicalOutput = finish - start;
-        uint256 required = usdcIn + minProfitUSDC;
-        if (canonicalOutput < required) revert NotProfitable(canonicalOutput, required);
-
-        profit = canonicalOutput - usdcIn;
-        _assertNoSyntheticDust();
-
-        usdc.safeTransfer(msg.sender, canonicalOutput);
-        emit ArbitrageExecuted(
-            Direction.EXT_BUY_INT_SELL,
-            usdcIn,
-            canonicalOutput,
-            profit
-        );
+        (, uint256 realized) = _settleBuy(start, usdcIn, minProfitUSDC);
+        profit = realized;
     }
 
     function executeInternalBuyExternalSell(
@@ -144,6 +131,24 @@ contract ArbitrageExecutorV2 is AccessControl, ReentrancyGuard {
         uint256 start = usdc.balanceOf(address(this));
         usdc.safeTransferFrom(msg.sender, address(this), usdcIn);
 
+        uint256 usdcOut = _routeInternalBuy(
+            usdcIn,
+            minInternalETHSOut,
+            minExternalUSDCOut,
+            sqrtPriceLimitX96
+        );
+
+        (, uint256 realized) =
+            _settleSell(start, usdcIn, minProfitUSDC, usdcOut, minExternalUSDCOut);
+        profit = realized;
+    }
+
+    function _routeInternalBuy(
+        uint256 usdcIn,
+        uint256 minInternalETHSOut,
+        uint256 minExternalUSDCOut,
+        uint160 sqrtPriceLimitX96
+    ) internal returns (uint256 usdcOut) {
         _approveExact(usdc, address(bridge), usdcIn);
         bridge.lockUSDCAndMintUSDS(address(this), usdcIn);
 
@@ -157,14 +162,44 @@ contract ArbitrageExecutorV2 is AccessControl, ReentrancyGuard {
 
         weth.deposit{value: nativeReceived}();
         _approveExact(IERC20(address(weth)), address(venue), nativeReceived);
-        uint256 usdcOut = venue.sellWETHExactInput(
+        usdcOut = venue.sellWETHExactInput(
             nativeReceived,
             minExternalUSDCOut,
             sqrtPriceLimitX96
         );
+    }
 
+    function _settleBuy(
+        uint256 start,
+        uint256 usdcIn,
+        uint256 minProfitUSDC
+    ) internal returns (uint256 canonicalOutput, uint256 profit) {
         uint256 finish = usdc.balanceOf(address(this));
-        uint256 canonicalOutput = finish - start;
+        canonicalOutput = finish - start;
+        uint256 required = usdcIn + minProfitUSDC;
+        if (canonicalOutput < required) revert NotProfitable(canonicalOutput, required);
+
+        profit = canonicalOutput - usdcIn;
+        _assertNoSyntheticDust();
+
+        usdc.safeTransfer(msg.sender, canonicalOutput);
+        emit ArbitrageExecuted(
+            Direction.EXT_BUY_INT_SELL,
+            usdcIn,
+            canonicalOutput,
+            profit
+        );
+    }
+
+    function _settleSell(
+        uint256 start,
+        uint256 usdcIn,
+        uint256 minProfitUSDC,
+        uint256 usdcOut,
+        uint256 minExternalUSDCOut
+    ) internal returns (uint256 canonicalOutput, uint256 profit) {
+        uint256 finish = usdc.balanceOf(address(this));
+        canonicalOutput = finish - start;
         uint256 required = usdcIn + minProfitUSDC;
         if (canonicalOutput < required || usdcOut < minExternalUSDCOut) {
             revert NotProfitable(canonicalOutput, required);

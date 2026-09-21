@@ -291,3 +291,37 @@ MIT License
 - Discord: Perpetual Arbitrage Engine
 
 Repository: `synergy_2chain_qe`
+
+---
+
+## V2 system profit — mathematical proof (Base fork, block 51341585)
+
+System boundary S = {bot, internal LP (100% of AMM reserves), bridge}.
+External donor D = real Uniswap V3 pool `0x6c56...1372`. Bridge is neutral
+(solvency stays exactly 10000 bps).
+
+Measured 3-round campaign, 20 USDC/round, `test/V2ProfitFork.t.sol`:
+
+```text
+Δbot    = +$0.049615   (real USDC balance delta)
+ΔLP     = +$0.253187   (AMM reserves, mark-to-2500)
+ΔS_gross = +$0.302802
+gas_full =  $0.022811   (OPGasCostModelV2: measured L2 + L1 upper + operator)
+ΔS_net   = +$0.279991 > 0
+ΔD       = -$0.302803
+ΔS_gross + ΔD ≈ 0      (three-way conservation, enforced on-chain in test)
+```
+
+Round 4 reverts `NotProfitable(19984449, 20000001)`: the executor refuses
+to trade at a loss, so the campaign stops by itself. Profit is finite and
+decays as the cross-venue gradient narrows — the gate guarantees no
+losing round is ever executed.
+
+Reproduce:
+
+```powershell
+tools\foundry\forge.exe test --fork-url "https://mainnet.base.org" `
+  --fork-block-number 51341585 --no-isolate --match-contract V2ProfitFork -vv
+```
+
+Full breakdown: `HARDNAV_V2.md`.

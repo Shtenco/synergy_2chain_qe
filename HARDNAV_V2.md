@@ -55,3 +55,33 @@ Run 1,000-10,000 sequential historical Base blocks with:
 8. drawdown, survival, fill rate, failed/reverted attempts and net HardNAV statistics.
 
 Legacy passing-test count is not evidence of sustainable economic profitability. The decisive metric is net deltaHardNAV under these rules.
+
+## Measured system P&L (Base fork block 51341585)
+
+`test/V2ProfitFork.t.sol` runs the production `ArbitrageExecutorV2` through
+the real Uniswap V3 venue. System S = bot + internal LP, bridge neutral.
+
+Single round (20 USDC in):
+
+```text
+bot      +$0.032602   (real USDC)
+internal +$0.068332   (AMM reserves mark-to-2500)
+external -$0.100935   (real pool mark-to-2500)
+sum ≈ 0               (assertApproxEqAbs, 1e-11 $ tolerance)
+```
+
+3-round campaign until the gate stops it:
+
+```text
+rounds   = 3 (round 4 reverts NotProfitable(19984449, 20000001))
+Δbot     = +$0.049615
+ΔLP      = +$0.253187
+ΔS_gross = +$0.302802
+gas_full =  $0.022811 (OPGasCostModelV2 over measured gas)
+ΔS_net   = +$0.279991
+ΔD       = -$0.302803
+```
+
+Conclusion: S is net profitable (+$0.28 after full Base gas). The donor is
+whichever side stands mispriced — here the external pool. When the gradient
+narrows below costs, the executor halts the campaign instead of losing.
