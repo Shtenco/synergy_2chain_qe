@@ -38,82 +38,98 @@ contract Deploy is Script {
         ManagedOracle oracle = new ManagedOracle(initialEthPrice);
         console.log("ManagedOracle deployed at:", address(oracle));
         
+        // 3-7. Deploy system + roles (split out: review-only stack-depth fix, same calls)
+        _deploySystem(address(usds), address(eths), address(oracle), deployer);
+
+        vm.stopBroadcast();
+
+        console.log("Deployment complete!");
+    }
+
+    function _deploySystem(address usds, address eths, address oracle, address deployer) internal {
         // 3. Deploy Bridge
         address canonicalUSDC = vm.envAddress("USDC_ADDRESS");
-        BridgeCore bridge = new BridgeCore(
-            address(usds),
-            address(eths),
-            canonicalUSDC,
-            address(oracle)
-        );
+        BridgeCore bridge = new BridgeCore(usds, eths, canonicalUSDC, oracle);
         console.log("BridgeCore deployed at:", address(bridge));
-        
+
         // 4. Deploy Internal AMM
-        InternalAMM amm = new InternalAMM(
-            address(usds),
-            address(eths),
-            address(oracle)
-        );
+        InternalAMM amm = new InternalAMM(usds, eths, oracle);
         console.log("InternalAMM deployed at:", address(amm));
-        
+
+        _deployTreasuryExecutor(usds, eths, oracle, address(bridge), address(amm), canonicalUSDC, deployer);
+
+        console.log("---");
+        console.log("USDS:", usds);
+        console.log("ETHS:", eths);
+        console.log("Oracle:", oracle);
+        console.log("Bridge:", address(bridge));
+        console.log("AMM:", address(amm));
+    }
+
+    function _deployTreasuryExecutor(
+        address usds,
+        address eths,
+        address oracle,
+        address bridge,
+        address amm,
+        address canonicalUSDC,
+        address deployer
+    ) internal {
         // 5. Deploy Treasury
-        address ownerWallet = vm.envAddress("OWNER_WALLET");
-        address bridgeReserve = vm.envAddress("BRIDGE_RESERVE");
-        address insuranceFund = vm.envAddress("INSURANCE_FUND");
-        address rebaseFund = vm.envAddress("REBASE_FUND");
-        
         TreasuryDistributor treasury = new TreasuryDistributor(
             canonicalUSDC,
-            ownerWallet,
-            bridgeReserve,
-            insuranceFund,
-            rebaseFund
+            vm.envAddress("OWNER_WALLET"),
+            vm.envAddress("BRIDGE_RESERVE"),
+            vm.envAddress("INSURANCE_FUND"),
+            vm.envAddress("REBASE_FUND")
         );
         console.log("TreasuryDistributor deployed at:", address(treasury));
-        
+
         // 6. Deploy Arbitrage Executor
         ArbitrageExecutor executor = new ArbitrageExecutor(
-            address(bridge),
-            address(amm),
+            bridge,
+            amm,
             address(treasury),
-            address(oracle),
+            oracle,
             canonicalUSDC,
             vm.envAddress("WETH_ADDRESS"),
-            address(usds),
-            address(eths)
+            usds,
+            eths
         );
         console.log("ArbitrageExecutor deployed at:", address(executor));
-        
-        // 7. Configure roles
+
+        // 7. Configure roles (split out: review-only stack-depth fix, same calls)
+        _configureRoles(USDS(usds), ETHS(eths), BridgeCore(payable(bridge)), InternalAMM(amm), executor, deployer);
+
+        console.log("Treasury:", address(treasury));
+        console.log("Executor:", address(executor));
+    }
+
+    function _configureRoles(
+        USDS usds,
+        ETHS eths,
+        BridgeCore bridge,
+        InternalAMM amm,
+        ArbitrageExecutor executor,
+        address deployer
+    ) internal {
         address operator = vm.envAddress("OPERATOR_ADDRESS");
         address bot = vm.envAddress("BOT_ADDRESS");
-        
+
         // Bridge roles
         bridge.grantRole(bridge.OPERATOR_ROLE(), operator);
         bridge.grantRole(bridge.OPERATOR_ROLE(), address(executor));
-        
+
         // Token roles
         usds.grantRole(usds.BRIDGE_ROLE(), address(bridge));
         eths.grantRole(eths.BRIDGE_ROLE(), address(bridge));
-        
+
         // AMM roles
         amm.grantRole(amm.REBASE_ROLE(), deployer); // Can be transferred to executor
-        
+
         // Executor roles
         executor.grantRole(executor.BOT_ROLE(), bot);
-        
+
         console.log("Roles configured");
-        
-        vm.stopBroadcast();
-        
-        console.log("Deployment complete!");
-        console.log("---");
-        console.log("USDS:", address(usds));
-        console.log("ETHS:", address(eths));
-        console.log("Oracle:", address(oracle));
-        console.log("Bridge:", address(bridge));
-        console.log("AMM:", address(amm));
-        console.log("Treasury:", address(treasury));
-        console.log("Executor:", address(executor));
     }
 }
