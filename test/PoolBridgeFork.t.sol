@@ -137,6 +137,8 @@ contract PoolBridgeFork is Test {
 
         assertApproxEqAbs(botD * 1e12 + poolsD + uniD, 0, 1e16, "conservation broken");
         assertLt(uniD, 0, "external donor did not pay");
+        // EXACT proof: bot + ALL bridge pools, gross (before gas) and net.
+        assertGt(botD * 1e12 + poolsD, 0, "bot+pools gross not positive");
     }
 
     function test_PoolBridge_HarvestNoVault() public {
