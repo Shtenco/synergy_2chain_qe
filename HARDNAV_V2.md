@@ -85,3 +85,12 @@ gas_full =  $0.022811 (OPGasCostModelV2 over measured gas)
 Conclusion: S is net profitable (+$0.28 after full Base gas). The donor is
 whichever side stands mispriced — here the external pool. When the gradient
 narrows below costs, the executor halts the campaign instead of losing.
+
+## Huge round (200 USDC, dip block 51336585)
+
+Same fair formula at 10x size:
+
+```text
+Δbot = +$0.265839, ΔLP = +$1.410382, ΔS_net = +$1.660665,
+ΔD = -$1.676222, Σ ≈ 0. One round, then the profit gate stops round 2.
+```

@@ -385,6 +385,50 @@ contract V2ProfitFork is Test {
         assertGt(systemNet, 0, "symmetric system did not grow");
     }
 
+    function _tryHuge() internal returns (bool ok) {
+        vm.prank(bot);
+        try executor.executeExternalBuyInternalSell(200e6, 0.0795 ether, 198e18, 0, 100_000, block.timestamp)
+            returns (uint256)
+        {
+            ok = true;
+        } catch {
+            ok = false;
+        }
+    }
+
+    /// @dev REPEAT of the winning formula with HUGE size: fair-seeded pool,
+    ///      external-only spread, one direction. Run at a dip block
+    ///      (e.g. 51336585, ~$2471) so the EXTERNAL donor pays more.
+    function test_V2HugeExternalDonorPaysMore() public {
+        uint256 b0 = IERC20(USDC).balanceOf(bot);
+        (uint256 uni0, uint256 u0, uint256 e0) = _extMark();
+        uint256 gasStart = gasleft();
+        uint256 rounds;
+        while (rounds < 25) {
+            if (!_tryHuge()) break;
+            rounds++;
+        }
+        uint256 b1 = IERC20(USDC).balanceOf(bot);
+        (int256 intDelta, int256 poolDelta) = _lpPoolDeltas(u0, e0, uni0);
+        int256 botDelta = int256(b1) - int256(b0);
+        uint256 fullFee6 = new OPGasCostModelV2(address(oracle)).estimateFeeUSDC6(
+            gasStart - gasleft(), tx.gasprice, 400 * rounds
+        );
+        int256 systemNet = botDelta * 1e12 + intDelta - int256(fullFee6) * 1e12;
+
+        console.logUint(rounds);
+        console.logInt(botDelta);
+        console.logInt(intDelta);
+        console.logInt(poolDelta);
+        console.logUint(fullFee6);
+        console.logInt(systemNet);
+
+        assertGe(rounds, 1, "no huge round executed");
+        assertLt(poolDelta, 0, "external donor did not pay");
+        assertApproxEqAbs(botDelta * 1e12 + intDelta + poolDelta, 0, 1e16, "conservation broken");
+        assertGt(systemNet, 0, "system not profitable");
+    }
+
     function test_V2Executor_WrongDirectionReverts() public {
         vm.prank(bot);
         vm.expectRevert();

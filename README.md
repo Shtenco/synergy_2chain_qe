@@ -317,6 +317,25 @@ to trade at a loss, so the campaign stops by itself. Profit is finite and
 decays as the cross-venue gradient narrows — the gate guarantees no
 losing round is ever executed.
 
+### HUGE round: same winning formula, 10x size (dip block 51336585, ~$2471)
+
+Fair pool, external-only spread, one direction, 200 USDC in:
+
+```text
+Δbot      = +$0.265839
+ΔLP       = +$1.410382   (large size shifts value toward LP inventory)
+ΔS_gross  = +$1.676221
+gas_full  =  $0.015556
+ΔS_net    = +$1.660665
+ΔD        = -$1.676222   <- external donor paid 5.6x more than before
+Σ         ≈ 0
+```
+
+Round 2 reverts on the profit gate (true exhaustion at this size, not a
+bounds artifact: output ≈ $198.7 < $200.1 required). Lesson: bigger size =
+more per-round extraction but fewer rounds; total capture scales with
+edge-squared over pool depth.
+
 Reproduce:
 
 ```powershell
