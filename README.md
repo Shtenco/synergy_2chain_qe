@@ -473,6 +473,16 @@ Absolute floor: edge must exceed `0.6% + g/s` (0.635% at $20 size) —
 below that no pool depth helps. Recommended: TVL ≥ 2x boundary (≈$16k).
 Optimal size for a deep pool: `s* = U × (e − 0.006) / 2`.
 
+### Absolute floors by trade size (gas $0.007 measured)
+
+| Size | Floor e_min |
+|---|---|
+| $5 | **0.740%** |
+| $10 | **0.670%** |
+| $20 | **0.635%** |
+
+Full derivation, TVL tables and verification log: `FORMULAS.md`.
+
 Reproduce:
 
 ```powershell
