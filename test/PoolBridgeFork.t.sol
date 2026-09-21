@@ -11,6 +11,7 @@ import "../contracts/v2/IExternalPriceOracleV2.sol";
 import "../contracts/pb/BridgePool.sol";
 import "../contracts/pb/ExecutorPB.sol";
 import "../contracts/pb/BuybackBurner.sol";
+import "../contracts/v2/OPGasCostModelV2.sol";
 
 contract FixedOraclePB is IExternalPriceOracleV2 {
     function getPrice6d() external pure override returns (uint256) { return 2500e6; }
@@ -209,6 +210,55 @@ contract PoolBridgeFork is Test {
         PBSnap memory s1 = _snap();
 
         _assertBuyback(s0, s1, supply0, burned, priceB, priceA);
+    }
+
+    /// @dev One micro round: 50%-loose bounds, measures R = gross/full-gas x100.
+    function _micro(uint256 size6) internal returns (uint256 gross6, uint256 fullFee6, uint256 r100) {
+        OPGasCostModelV2 gm = new OPGasCostModelV2(address(oracle));
+        uint256 minW = (size6 * 1e18) / 5200e6;
+        uint256 b0 = IERC20(USDC).balanceOf(bot);
+        uint256 g0 = gasleft();
+        vm.prank(bot);
+        try exec.executeExternalBuyInternalSell(size6, minW, minW / 2, size6 * 1e12 / 2, size6 / 2, 1, block.timestamp) {
+            uint256 used = g0 - gasleft();
+            uint256 b1 = IERC20(USDC).balanceOf(bot);
+            fullFee6 = gm.estimateFeeUSDC6(used, tx.gasprice, 400);
+            gross6 = b1 - b0;
+            r100 = (gross6 * 100) / fullFee6;
+        } catch {
+            gross6 = 0;
+            fullFee6 = 0;
+            r100 = 0;
+        }
+        assertEq(usds.balanceOf(address(exec)), 0, "USDS dust");
+        assertEq(eths.balanceOf(address(exec)), 0, "ETHS dust");
+    }
+
+    /// @notice Micro-trade gas discipline at dip (deep pools, impact ~= 0).
+    ///         Predicted R = s*(e-f)/g: $5 -> 3.1x, $2 -> 1.26x, $1 -> 0.63x, $0.5 -> 0.31x.
+    function test_MicroGasPayback2x() public {
+        (uint256 g5,, uint256 r5) = _micro(5e6);
+        console.logUint(g5);
+        console.logUint(r5);
+        assertGt(g5, 0, "$5 refused unexpectedly");
+        assertGe(r5, 200, "$5 must pay gas 2x+");
+
+        (uint256 g2,, uint256 r2) = _micro(2e6);
+        console.logUint(g2);
+        console.logUint(r2);
+        assertGt(g2, 0, "$2 refused unexpectedly");
+        assertGt(r2, 100, "$2 must stay net-positive");
+        assertLt(r2, 200, "$2 below 2x bar");
+
+        (,, uint256 r1) = _micro(1e6);
+        console.logUint(r1);
+        assertLt(r1, 100, "$1 below 1x (gas loss, honest)");
+
+        (,, uint256 rh) = _micro(0.5e6);
+        console.logUint(rh);
+        assertLt(rh, 100, "$0.5 below 1x (gas loss, honest)");
+
+        console.logUint(IERC20(USDC).balanceOf(bot));
     }
 
     function test_PoolBridge_HarvestNoVault() public {

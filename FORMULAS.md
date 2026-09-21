@@ -70,6 +70,22 @@ Capital-constrained (s ≤ capital): trade all-in.
 Tests: `test/V2PoolSizing.t.sol`, `test/V2SmallCap.t.sol`,
 `test/V2ProfitFork.t.sol`.
 
+## 9. Micro-trade gas discipline (R = gross / full gas, dip, deep pools)
+
+Rule: R(s) = s·(e−f)/g. Measured (`test_MicroGasPayback2x`):
+
+| Size | Gross | R measured | R predicted | Verdict |
+|---|---|---|---|---|
+| $5 | +$0.0207 | **2.70x** | 3.1x | ≥2x bar ✅ |
+| $2 | +$0.0077 | **1.32x** | 1.26x | net-positive, below bar |
+| $1 | +$0.0044 | **0.64x** | 0.63x | gas loss (honest) |
+| $0.5 | +$0.0022 | **0.31x** | 0.31x | gas loss (honest) |
+
+Thresholds (dip 1.14%, gas $0.007): R≥2x needs s ≥ ~$3.2;
+net-positive needs s ≥ ~$1.6. Operational rule: set executor
+minProfit ≥ 2x typical full gas (~$0.014) — the gate then auto-refuses
+sub-discipline sizes. All four micros summed: bot +$0.034 total.
+
 ## 7. Unified minimums: POOL-BRIDGE vs BRIDGE-LOCK ($118M mint pool)
 
 Setup: internal MINT pool $118M (59M/23.6k), external real pool ~$121.5M

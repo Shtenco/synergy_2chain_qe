@@ -562,6 +562,18 @@ pools untouched (`test_PoolBridge_Floor500_AllRefuse`). Minimum minimorum
 
 Full derivation, TVL tables and verification log: `FORMULAS.md`.
 
+### Micro-дисциплина газа (R = gross / full gas, дип, глубокие пулы)
+
+| Размер | R замер | Вердикт |
+|---|---|---|
+| $5 | **2.70x** | планка 2x взята ✅ |
+| $2 | 1.32x | в плюсе, ниже планки |
+| $1 | 0.64x | газовый убыток (честно) |
+| $0.5 | 0.31x | газовый убыток (честно) |
+
+Пороги: R≥2x от ~$3.2; net-positive от ~$1.6. Правило оператора:
+minProfit ≥ 2x типового газа (~$0.014) — gate сам режет мелкие размеры.
+
 ### Unified minimums (mint pool $118M, external ~$121.5M, capital $20)
 
 - BRIDGE-LOCK + minted pool: minimum = **∞** (thin $1k AND full $118M
