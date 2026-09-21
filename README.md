@@ -552,6 +552,14 @@ Optimal size for a deep pool: `s* = U × (e − 0.006) / 2`.
 | $10 | **0.670%** |
 | $20 | **0.635%** |
 
+### Floor proof at $500 TOTAL: all sizes refuse
+
+$80/side everywhere + $20 bot, best spike block (4.1% edge), bounds 50%
+loose: sizes $0.5/$2/$5/$20 tried → **0 executions**, bot exactly $20.00,
+pools untouched (`test_PoolBridge_Floor500_AllRefuse`). Minimum minimorum
+≈ $750 at 4%+ edge; $500 needs ≥6% edge — never observed. Details:
+`FORMULAS.md` §8.
+
 Full derivation, TVL tables and verification log: `FORMULAS.md`.
 
 ### Unified minimums (mint pool $118M, external ~$121.5M, capital $20)

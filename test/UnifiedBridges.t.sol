@@ -269,6 +269,77 @@ contract UnifiedBridges is Test {
         assertGt(systemNet, 0, "min-pool system not profitable");
     }
 
+    function _tryFloor(ExecutorPB e, uint256 size6) internal returns (bool ok) {
+        // 50%-loose bounds: any refusal is pure economics (NotProfitable),
+        // never my bound.
+        uint256 minW = (size6 * 1e18) / 5200e6;
+        vm.prank(bot);
+        try e.executeExternalBuyInternalSell(size6, minW, minW / 2, size6 * 1e12 / 2, size6 / 2, 1, block.timestamp)
+            returns (uint256)
+        {
+            ok = true;
+        } catch {
+            ok = false;
+        }
+    }
+
+    /// @dev FLOOR PROOF at $500 TOTAL: every venue $80/side + $20 bot.
+    ///      Best case (spike ~4.1%). Equation says impossible for ALL sizes
+    ///      (discriminant < 0). Tries $0.5/$2/$5/$20: all must refuse.
+    function test_PoolBridge_Floor500_AllRefuse() public {
+        seeder = makeAddr("fl.seeder");
+        bot = makeAddr("fl.bot");
+        usds = new USDSV2();
+        eths = new ETHSV2();
+        oracle = new FixedOracleU();
+        amm = new InternalAMMV2(address(usds), address(eths), address(oracle));
+        venue = new UniswapV3VenueV2(UNI_POOL, USDC, WETH);
+        poolA = new BridgePool(address(usds), USDC, 5, 1e12, "FlPool USDS-USDC", "FLU");
+        poolB = new BridgePool(address(eths), WETH, 5, 1, "FlPool ETHS-WETH", "FLE");
+        ExecutorPB execF = new ExecutorPB(
+            address(poolA), address(poolB), address(amm), address(venue),
+            USDC, WETH, address(usds), address(eths)
+        );
+        execF.grantRole(execF.BOT_ROLE(), bot);
+        usds.grantRole(usds.BRIDGE_ROLE(), address(this));
+        eths.grantRole(eths.BRIDGE_ROLE(), address(this));
+        usds.mint(seeder, 240e18);
+        eths.mint(seeder, 0.096 ether);
+        deal(USDC, seeder, 80e6);
+        deal(WETH, seeder, 0.032 ether);
+        vm.startPrank(seeder);
+        usds.approve(address(amm), type(uint256).max);
+        eths.approve(address(amm), type(uint256).max);
+        amm.addLiquidity(80e18, 0.032 ether);
+        usds.approve(address(poolA), type(uint256).max);
+        IERC20(USDC).approve(address(poolA), type(uint256).max);
+        poolA.addLiquidity(80e18, 80e6);
+        eths.approve(address(poolB), type(uint256).max);
+        IERC20(WETH).approve(address(poolB), type(uint256).max);
+        poolB.addLiquidity(0.032 ether, 0.032 ether);
+        vm.stopPrank();
+        usds.revokeRole(usds.BRIDGE_ROLE(), address(this));
+        eths.revokeRole(eths.BRIDGE_ROLE(), address(this));
+        deal(USDC, bot, 20e6);
+        vm.prank(bot);
+        IERC20(USDC).approve(address(execF), type(uint256).max);
+
+        (uint256 aU0, uint256 aB0) = poolA.reserves();
+        uint256 execCount;
+        uint256[4] memory sizes = [uint256(0.5e6), uint256(2e6), uint256(5e6), uint256(20e6)];
+        for (uint256 i = 0; i < 4; i++) {
+            if (_tryFloor(execF, sizes[i])) execCount++;
+        }
+        (uint256 aU1, uint256 aB1) = poolA.reserves();
+
+        console.logUint(execCount);
+        console.logUint(IERC20(USDC).balanceOf(bot));
+        assertEq(execCount, 0, "floor broken: $500 system executed");
+        assertEq(IERC20(USDC).balanceOf(bot), 20e6, "capital moved");
+        assertEq(aU1, aU0, "poolA moved without execution");
+        assertEq(aB1, aB0, "poolA moved without execution");
+    }
+
     function test_PoolBridge_TinyPools1k() public {
         _base();
         _buildPools(1_000e18, 1_000e6, 0.2 ether, 0.2 ether);

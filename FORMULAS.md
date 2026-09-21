@@ -111,3 +111,18 @@ Measured: 12k/12k + 5/5 EXECUTES (net +$0.156), 10k/10k + 2/2 refuses
 
 Pool-bridge needs ~2000x less backing capital. Trade-off: no solvency
 guarantee — LPs bear divergence risk instead of a vault enforcing it.
+
+## 8. Floor proof at $500 TOTAL (all sizes refuse)
+
+System: every venue $80/side (AMM 80/0.032, poolA 80/80, poolB
+0.032/0.032) + $20 bot = $500. Best case: spike block (edge ~4.1%).
+Bounds 50% loose, so refusal is pure economics.
+
+Equation: profit = s·(e − 0.007 − 3s/80) − 0.012 − minP has NO real roots
+(discriminant < 0) for any s — impossible at every size.
+
+Measured (`test_PoolBridge_Floor500_AllRefuse`): sizes $0.5/$2/$5/$20
+tried, **0 executions**, bot exactly $20.00, pools untouched.
+Minimum minimorum ≈ $750 total at 4%+ edge (≈$0.7 micro-trades);
+$500 needs ≥6% edge — never observed in the 24h sample.
+Test: `test/UnifiedBridges.t.sol`.
