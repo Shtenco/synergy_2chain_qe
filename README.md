@@ -326,3 +326,43 @@ flowchart LR
 `GREEN` означает только воспроизводимо подтверждённый тезис. Гипотеза, benchmark без корректного протокола, архитектурная диаграмма или красивый экономический цикл сами по себе GREEN не дают.
 
 <!-- SYNERGY-FEDERATION-PASSPORT:END -->
+
+---
+
+# ⛓️ Глубокий доказательный паспорт 2CHAIN QE
+
+## Реальный стек `main`
+
+Foundry smart contracts + Base fork tests + React monitoring UI. В `main` есть `BridgeCore.sol`, `InternalAMM.sol`, `ManagedOracle.sol`, `ArbitrageExecutor.sol`, synthetic assets, treasury logic и многочисленные fork tests.
+
+```mermaid
+flowchart LR
+    BASE[Base USDC/WETH] --> EXT[External pool]
+    EXT --> BR[BridgeCore]
+    BR --> SYN[USDS / ETHS]
+    SYN --> AMM[InternalAMM]
+    AMM --> EXEC[ArbitrageExecutor]
+    EXEC --> TREAS[Treasury]
+```
+
+## Самый важный evidence result
+
+`PROFIT_TEST_REPORT_2026-09-21.md` фиксирует fork block `51341585`. В direct Uniswap V3 тесте external leg действительно вызывает реальный Base V3 pool на fork; 20 rounds дали bot USDC profit `0.491033` и system equity delta `+2.018602825823602500` при равном отрицательном pool delta по выбранной mark-модели.
+
+## Критические ограничения этого результата
+
+- тестовые акторы финансируются Foundry `deal(...)`; стартовый капитал не органический;
+- это fork-state experiment, не live permissionless execution;
+- часть старых тестов использует `ForeignPoolMock` и stale-price donor mechanics;
+- рост системы сопровождается потерей другой стороны: conservation должен анализироваться всегда;
+- profitable route в тесте не доказывает устойчивый источник edge в реальном рынке после competition/gas/MEV/capital costs.
+
+## GREEN semantics
+
+Здесь GREEN может означать только: **данный fork-test воспроизводимо показал определённый transfer/conservation result при заданном block/state/setup**.
+
+Он не означает `perpetual profit`, `free money` или production-ready arbitrage engine.
+
+## Следующий рубеж
+
+live-like fork without privileged `deal` assumptions → real router/callback gas → MEV/adversarial ordering → repeated historical blocks → OOS block set → capital/liability accounting → shadow/live evidence.
