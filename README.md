@@ -1,3 +1,11 @@
+<!-- SCIENTIFIC-V5-2026:START -->
+<img src="assets/readme/scientific-architecture-v5.svg" width="100%" alt="SYNERGY 2Chain QE scientific architecture"/>
+
+**[Научно-техническое досье V5: математика, исходники, тесты, ограничения](docs/SCIENTIFIC_DOSSIER_V5_2026.md)**  
+**Проверяемый статус:** EXPERIMENTAL: Solidity и Foundry tests присутствуют; публичная прибыль не подтверждена. Предыдущий README ниже сохранён; наличие кода не означает подтверждённого production.
+
+<!-- SCIENTIFIC-V5-2026:END -->
+
 # Perpetual Arbitrage Engine - Base Mainnet Fork
 
 ## Система алгоритмического арбитража и самовосстанавливающейся ликвидности
